@@ -1,5 +1,5 @@
 use anyhow::*;
-use heck::ToPascalCase;
+use heck::{ToLowerCamelCase, ToPascalCase, ToUpperCamelCase};
 use move_idl::{IDLArgument, IDLModule, IDLScriptFunction};
 
 use crate::{
@@ -237,5 +237,134 @@ impl<'info> Codegen for ScriptFunctionType<'info> {
             &type_arguments,
             &arguments
         ))
+    }
+}
+
+impl<'info> Codegen for Vec<ScriptFunctionType<'info>> {
+    fn generate_typescript(&self, _: &CodegenContext) -> Result<String> {
+        if self.len() == 0 {
+            Ok("".to_string())
+        } else {
+            let first_fn = self.first().unwrap();
+            let module_name = first_fn
+                .module
+                .module_id
+                .name()
+                .to_string()
+                .to_upper_camel_case();
+
+            // @todo only generate the module class for Aptos if we are in address32 mode
+            let aptos_module = format!(
+                "
+type TransactionPayload = {{
+	type: string;
+  function: string;
+  arguments: unknown[];
+  type_arguments: string[];
+}}
+
+export class {}AptosModule {{
+	constructor(private readonly client: AptosClient, private readonly account: AptosAccount) {{}}
+
+	{}
+
+	private async sendTransaction(payload: TransactionPayload) {{
+    const txnRequest = await this.client.generateTransaction(
+      this.account.address(),
+      this.transformTxnPayload(payload)
+    );
+
+    const signedTxn = await this.client.signTransaction(this.account, txnRequest);
+    const txnResponse = await this.client.submitTransaction(signedTxn);
+
+    return {{
+      ...txnResponse,
+      wait: async () => {{
+        return this.client.waitForTransaction(txnResponse.hash);
+      }},
+    }};
+  }}
+
+  private transformTxnPayload(payload: TransactionPayload): Types.TransactionPayload {{
+    const [moduleAddress, moduleName, functionName] = payload.function.split(\"::\");
+    return {{
+      ...payload,
+      function: {{
+        name: functionName,
+        module: {{ address: moduleAddress, name: moduleName }},
+      }},
+    }};
+  }}
+}}
+						",
+                module_name,
+                self.iter()
+                    .map(|script_fn| {
+                        let fn_name = script_fn.name();
+
+                        format!(
+                            "
+	async {}(args: mod.{}) {{
+		return this.sendTransaction({}(args));
+	}}
+",
+                            fn_name.to_lower_camel_case(),
+                            script_fn.payload_args_type_name(),
+                            fn_name,
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("")
+            );
+
+						// @todo only generate the module class for Sui if we are in address20 mode
+            let sui_module = format!(
+                "
+type SuiCallOverrides = {{
+	gasBudget?: number;
+	gasPayment?: ObjectId;
+}};
+
+export class {}SuiModule {{
+private readonly defaultGasBudget = 1000;
+
+constructor(private readonly signer: RawSigner) {{}}
+
+{}
+}}
+",
+                module_name,
+                self.iter()
+                    .map(|script_fn| {
+                        let fn_name = script_fn.name();
+
+                        format!(
+                            "
+async {}(args: mod.{}, overrides: SuiCallOverrides) {{
+	const payload = {}(args);
+
+	return this.signer.executeMoveCall({{
+			module: mod.NAME,
+			packageObjectId: mod.ADDRESS,
+			function: \"{}\",
+			typeArguments: payload.type_arguments,
+			arguments: payload.arguments,
+			gasBudget: overrides?.gasBudget ?? this.defaultGasBudget,
+			...overrides,
+	}})
+}}
+",
+                            fn_name.to_lower_camel_case(),
+                            script_fn.payload_args_type_name(),
+                            fn_name,
+                            fn_name
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("")
+            );
+
+            Ok(format!("{}\n{}", aptos_module, sui_module))
+        }
     }
 }
