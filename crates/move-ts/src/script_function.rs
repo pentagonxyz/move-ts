@@ -317,7 +317,6 @@ export class {}AptosModule {{
                     .join("")
             );
 
-						// @todo only generate the module class for Sui if we are in address20 mode
             let sui_module = format!(
                 "
 type SuiCallOverrides = {{
@@ -364,7 +363,11 @@ async {}(args: mod.{}, overrides: SuiCallOverrides) {{
                     .join("")
             );
 
-            Ok(format!("{}\n{}", aptos_module, sui_module))
+            if cfg!(feature = "address32") {
+                return Ok(format!("{}", aptos_module));
+            }
+
+            Ok(format!("{}", sui_module))
         }
     }
 }
