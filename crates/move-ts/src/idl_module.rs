@@ -67,15 +67,19 @@ impl<'info> IDLModuleGenerator<'info> {
     }
 
     pub fn generate_entrypoint_module(&self, ctx: &CodegenContext) -> Result<CodeText> {
-        let sui_imports = "import { RawSigner, ObjectId } from '@mysten/sui.js';\n";
-        let aptos_imports = "import { AptosClient, AptosAccount, Types } from 'aptos';\n";
+        let extra_imports = if cfg!(feature = "address20") {
+            "import { RawSigner, ObjectId } from '@mysten/sui.js';\n"
+        } else if cfg!(feature = "address32") {
+            "import { AptosClient, AptosAccount, Types } from 'aptos';\n"
+        } else {
+            ""
+        };
 
         Ok(format!(
-            "{}{}\nimport * as mod from './index.js';\nimport * as payloads from './payloads.js';\n{}{}\n\n{}",
+            "{}{}\nimport * as mod from './index.js';\nimport * as payloads from './payloads.js';\n{}\n\n{}",
             gen_doc_string("Entrypoint builders.\n\n@module"),
             PRELUDE,
-            sui_imports,
-            aptos_imports,
+            extra_imports,
             self.generate_entrypoint_bodies(ctx)?,
         )
         .into())

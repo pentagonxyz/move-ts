@@ -265,7 +265,6 @@ type TransactionPayload = {{
 
 export class {}AptosModule {{
 	constructor(private readonly client: AptosClient, private readonly account: AptosAccount) {{}}
-
 	{}
 
 	private async sendTransaction(payload: TransactionPayload) {{
@@ -295,8 +294,7 @@ export class {}AptosModule {{
       }},
     }};
   }}
-}}
-						",
+}}",
                 module_name,
                 self.iter()
                     .map(|script_fn| {
@@ -306,8 +304,7 @@ export class {}AptosModule {{
                             "
 	async {}(args: mod.{}) {{
 		return this.sendTransaction({}(args));
-	}}
-",
+	}}",
                             fn_name.to_lower_camel_case(),
                             script_fn.payload_args_type_name(),
                             fn_name,
@@ -330,8 +327,7 @@ private readonly defaultGasBudget = 1000;
 constructor(private readonly signer: RawSigner) {{}}
 
 {}
-}}
-",
+}}",
                 module_name,
                 self.iter()
                     .map(|script_fn| {
@@ -351,8 +347,7 @@ async {}(args: mod.{}, overrides: SuiCallOverrides) {{
 			gasBudget: overrides?.gasBudget ?? this.defaultGasBudget,
 			...overrides,
 	}})
-}}
-",
+}}",
                             fn_name.to_lower_camel_case(),
                             script_fn.payload_args_type_name(),
                             fn_name,
@@ -363,11 +358,13 @@ async {}(args: mod.{}, overrides: SuiCallOverrides) {{
                     .join("")
             );
 
-            if cfg!(feature = "address32") {
-                return Ok(format!("{}", aptos_module));
+            if cfg!(feature = "address20") {
+                return Ok(format!("{}\n", sui_module));
+            } else if cfg!(feature = "address32") {
+                return Ok(format!("{}\n", aptos_module));
+            } else {
+                return Ok(format!(""));
             }
-
-            Ok(format!("{}", sui_module))
         }
     }
 }
