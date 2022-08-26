@@ -1,6 +1,5 @@
 use crate::{
     format::{gen_doc_string, gen_doc_string_opt},
-    idl_type::generate_idl_type_with_type_args,
     CodeText,
 };
 
@@ -59,15 +58,29 @@ impl<'info> IDLModuleGenerator<'info> {
     }
 
     pub fn generate_entrypoint_bodies(&self, ctx: &CodegenContext) -> Result<CodeText> {
-        ctx.try_join(&self.script_fns)
+        Ok(format!(
+            "{}\n\n{}",
+            ctx.try_join(&self.script_fns)?,
+            ctx.generate(&self.script_fns)?
+        )
+        .into())
     }
 
     pub fn generate_entrypoint_module(&self, ctx: &CodegenContext) -> Result<CodeText> {
+        let extra_imports = if cfg!(feature = "address20") {
+            "import { RawSigner, ObjectId } from '@mysten/sui.js';\n"
+        } else if cfg!(feature = "address32") {
+            "import { AptosClient, AptosAccount, Types } from 'aptos';\n"
+        } else {
+            ""
+        };
+
         Ok(format!(
-            "{}{}\nimport * as mod from './index.js';\nimport * as payloads from './payloads.js';\n{}",
+            "{}{}\nimport * as mod from './index.js';\nimport * as payloads from './payloads.js';\n{}\n\n{}",
             gen_doc_string("Entrypoint builders.\n\n@module"),
             PRELUDE,
-            self.generate_entrypoint_bodies(ctx)?
+            extra_imports,
+            self.generate_entrypoint_bodies(ctx)?,
         )
         .into())
     }
@@ -188,37 +201,6 @@ impl Codegen for IDLModule {
             );
         }
 
-        let mut js_func_code = String::from("");
-
-        for script_fn in self.functions.iter() {
-            js_func_code.push_str(&format!("
-  public async {}(", script_fn.name));
-            js_func_code.push_str(&script_fn.ty_args
-                .iter()
-                .map(|a| format!("{}: string", a))
-                .collect::<Vec<_>>()
-                .join(", "));
-            for func_arg in script_fn.args.iter() {
-                let ts_type = &generate_idl_type_with_type_args(&func_arg.ty, ctx, &[], false)?;
-                js_func_code.push_str(&format!("
-    {}: {},", func_arg.name, &ts_type));
-            }
-            let type_args_str = script_fn.ty_args
-                .iter()
-                .map(|a| format!("{}", a))
-                .collect::<Vec<_>>()
-                .join(", ");
-            let args_str = script_fn.args
-                .iter()
-                .map(|a| format!("{}", a.name))
-                .collect::<Vec<_>>()
-                .join(", ");
-            js_func_code.push_str(&format!("
-  ) {
-    this.callback(\"{}\", [{}], [{}]);
-  }", script_fn.name, &type_args_str, &args_str));
-        }
-
         let ts = format!(
             r#"{}{}
 
@@ -268,16 +250,6 @@ const moduleImpl = {{
 }} as const;
 
 {}export const moduleDefinition = moduleImpl as p.MoveModuleDefinition<"{}", "{}"> as typeof moduleImpl;
- 
-export class Module {{
-  private callback: Function;
-
-  constructor(_callback: Function) {{
-    this.callback = _callback;
-  }}
-
-{}
-}}
 "#,
             gen.generate_module_doc(),
             PRELUDE,
@@ -311,7 +283,6 @@ export class Module {{
             gen_doc_string_opt(&self.doc),
             self.module_id.address().to_hex_literal(),
             name,
-            js_func_code
         );
 
         Ok(ts)
